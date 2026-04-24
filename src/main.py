@@ -13,29 +13,32 @@ class FishingBot:
         self.capturer = WindowCapture(config.GAME_WINDOW_TITLE)
         self.detector = StateDetector()
         self.controller: FishingController | None = None
-        self._running = False
+        self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._state_log: str = "已停止"
 
     def start(self):
-        if self._running:
+        if self._stop_event.is_set() or (self._thread is not None and self._thread.is_alive()):
             return
-        self._running = True
+        self._stop_event.clear()
+        self._state_log = "运行中"
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 
     def stop(self):
-        self._running = False
+        self._stop_event.set()
 
     def toggle(self):
-        if self._running:
+        if self.is_running:
             self.stop()
         else:
             self.start()
 
     @property
     def is_running(self) -> bool:
-        return self._running
+        return not self._stop_event.is_set() and (
+            self._thread is not None and self._thread.is_alive()
+        )
 
     @property
     def status(self) -> str:
@@ -46,7 +49,7 @@ class FishingBot:
         cast_at: float | None = None
         fishing_started = False
 
-        while self._running:
+        while not self._stop_event.is_set():
             frame = self.capturer.get_frame()
             if frame is None:
                 self._state_log = "找不到游戏窗口"
