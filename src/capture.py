@@ -49,6 +49,10 @@ class WindowCapture:
 
     def _bitblt_capture(self) -> np.ndarray | None:
         """使用 BitBlt 从游戏 DC 截图（无需前台），返回 BGR numpy 数组。"""
+        hwnd_dc = None
+        mfc_dc = None
+        save_dc = None
+        bitmap = None
         try:
             rect = win32gui.GetClientRect(self.hwnd)
             w, h = rect[2], rect[3]
@@ -58,7 +62,6 @@ class WindowCapture:
             hwnd_dc = win32gui.GetWindowDC(self.hwnd)
             mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
             save_dc = mfc_dc.CreateCompatibleDC()
-
             bitmap = win32ui.CreateBitmap()
             bitmap.CreateCompatibleBitmap(mfc_dc, w, h)
             save_dc.SelectObject(bitmap)
@@ -72,13 +75,15 @@ class WindowCapture:
                 bmp_str, 'raw', 'BGRX', 0, 1
             )
             frame = np.array(img)[:, :, :3]
-            frame = frame[:, :, ::-1].copy()  # RGB → BGR
-
-            save_dc.DeleteDC()
-            mfc_dc.DeleteDC()
-            win32gui.ReleaseDC(self.hwnd, hwnd_dc)
-            win32gui.DeleteObject(bitmap.GetHandle())
-
-            return frame
+            return frame[:, :, ::-1].copy()  # RGB → BGR
         except Exception:
             return None
+        finally:
+            if save_dc:
+                save_dc.DeleteDC()
+            if mfc_dc:
+                mfc_dc.DeleteDC()
+            if hwnd_dc:
+                win32gui.ReleaseDC(self.hwnd, hwnd_dc)
+            if bitmap:
+                win32gui.DeleteObject(bitmap.GetHandle())
