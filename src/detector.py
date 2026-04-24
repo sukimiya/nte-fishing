@@ -43,12 +43,7 @@ class StateDetector:
             int(w * config.BAR_X_START_RATIO):int(w * config.BAR_X_END_RATIO)
         ]
         hsv = cv2.cvtColor(bar, cv2.COLOR_BGR2HSV)
-        mask = (
-            (hsv[:, :, 0] >= config.SLIDER_H_LOW) &
-            (hsv[:, :, 0] <= config.SLIDER_H_HIGH) &
-            (hsv[:, :, 1] > config.SLIDER_S_MIN) &
-            (hsv[:, :, 2] > config.SLIDER_V_MIN)
-        )
+        mask = self._slider_mask(hsv)
         return int(mask.sum()) > config.SLIDER_PX_THRESHOLD
 
     def _is_bite(self, frame: np.ndarray) -> bool:
@@ -60,13 +55,16 @@ class StateDetector:
         hsv = cv2.cvtColor(icon, cv2.COLOR_BGR2HSV)
         return float(hsv[:, :, 2].mean()) > config.BITE_V_THRESHOLD
 
-    def _find_slider(self, bar_hsv: np.ndarray) -> tuple[int | None, int | None]:
-        mask = (
-            (bar_hsv[:, :, 0] >= config.SLIDER_H_LOW) &
-            (bar_hsv[:, :, 0] <= config.SLIDER_H_HIGH) &
-            (bar_hsv[:, :, 1] > config.SLIDER_S_MIN) &
-            (bar_hsv[:, :, 2] > config.SLIDER_V_MIN)
+    def _slider_mask(self, hsv: np.ndarray) -> np.ndarray:
+        return (
+            (hsv[:, :, 0] >= config.SLIDER_H_LOW) &
+            (hsv[:, :, 0] <= config.SLIDER_H_HIGH) &
+            (hsv[:, :, 1] > config.SLIDER_S_MIN) &
+            (hsv[:, :, 2] > config.SLIDER_V_MIN)
         )
+
+    def _find_slider(self, bar_hsv: np.ndarray) -> tuple[int | None, int | None]:
+        mask = self._slider_mask(bar_hsv)
         cols = np.where(mask.any(axis=0))[0]
         if len(cols) == 0:
             return None, None
@@ -83,6 +81,8 @@ class StateDetector:
         cols = np.where(mask.any(axis=0))[0]
         if len(cols) == 0:
             return None
+        if len(cols) == 1:
+            return int(cols[0]) + config.MARKER_INNER_X_START
 
         groups: list[tuple[int, int]] = []
         s, p = int(cols[0]), int(cols[0])
