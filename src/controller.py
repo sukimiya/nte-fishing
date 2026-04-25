@@ -3,13 +3,15 @@ import logging
 import time
 import win32api
 import win32con
-import vgamepad as vg
 import config
+from src.input_inject import key_press, key_release
 
 log = logging.getLogger(__name__)
 
 VK_MAP = {
     'f':      0x46,
+    'a':      0x41,
+    'd':      0x44,
     'escape': 0x1B,
 }
 
@@ -26,8 +28,7 @@ class FishingController:
 
     def __init__(self, hwnd: int):
         self.hwnd = hwnd
-        self._pad = vg.VX360Gamepad()
-        self._stick_x = 0.0
+        self._held: str | None = None
 
     def press_cast(self):
         """按 F 键（抛竿或确认上钩）。"""
@@ -38,28 +39,30 @@ class FishingController:
         self._tap('escape', 0.05)
 
     def hold_direction(self, error: float):
-        """左摇杆控制方向：error>0 → 向左（-1.0），error<0 → 向右（+1.0），死区内归零。"""
+        """持续按住方向键：error>0 → A（向左），error<0 → D（向右），死区内松开。"""
         if error > config.DEAD_ZONE:
-            self._set_stick(-1.0)
+            self._set_held('a')
         elif error < -config.DEAD_ZONE:
-            self._set_stick(1.0)
+            self._set_held('d')
         else:
-            self._set_stick(0.0)
+            self._set_held(None)
 
     def release_all(self):
-        self._set_stick(0.0)
+        self._set_held(None)
 
     # ------------------------------------------------------------------
 
-    def _set_stick(self, x: float):
-        if x == self._stick_x:
+    def _set_held(self, key: str | None):
+        if key == self._held:
             return
-        self._stick_x = x
-        self._pad.left_joystick_float(x_value_float=x, y_value_float=0.0)
-        self._pad.update()
+        if self._held is not None:
+            key_release(VK_MAP[self._held])
+        if key is not None:
+            key_press(VK_MAP[key])
+        self._held = key
 
     def _tap(self, key: str, duration: float):
-        """短按一次：PostMessage KEYDOWN + sleep + KEYUP。"""
+        """短按一次：PostMessage KEYDOWN + sleep + KEYUP（F/ESC 走消息队列，后台可用）。"""
         vk = VK_MAP[key]
         lp_down = _make_lparam(vk, key_up=False)
         lp_up   = _make_lparam(vk, key_up=True)
