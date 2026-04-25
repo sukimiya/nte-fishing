@@ -2,6 +2,7 @@ import ctypes
 import ctypes.wintypes
 import logging
 import threading
+import cv2
 import numpy as np
 import win32gui
 import mss
@@ -13,19 +14,17 @@ log = logging.getLogger(__name__)
 class WindowCapture:
     """
     优先使用 Windows Graphics Capture API（WGC）截图：
-    即使游戏窗口被其他窗口完全遮挡或不在前台，也能正确截取 DX 渲染内容。
+    即使游戏窗口被其他窗口完全遮挡也能正确截取 DX 渲染内容。
+    WGC 帧会 resize 到逻辑像素尺寸（与 DPI 缩放无关），保持检测阈值一致。
     WGC 不可用时降级为 mss（需要窗口可见）。
     """
 
     def __init__(self, window_title: str):
         self.window_title = window_title
         self.hwnd = self._find_hwnd()
-
         self._lock = threading.Lock()
         self._latest_frame: np.ndarray | None = None
-        self._capture_ctrl = None
-
-        self._sct = mss.mss()          # mss 降级备用
+        self._sct = mss.mss()
         self._start_wgc()
 
     # ------------------------------------------------------------------
@@ -49,7 +48,6 @@ class WindowCapture:
             self.refresh_hwnd()
             if not self.is_window_found():
                 return None
-            # 窗口重新找到后重启 WGC
             self._start_wgc()
 
         with self._lock:
@@ -86,33 +84,41 @@ class WindowCapture:
 
             @cap.event
             def on_frame_arrived(frame: Frame, ctrl: InternalCaptureControl):
-                # frame_buffer 是 BGRA numpy 数组
-                bgr = frame.frame_buffer[:, :, :3].copy()
-                with self._lock:
-                    self._latest_frame = bgr
+                try:
+                    bgr = frame.frame_buffer[:, :, :3].copy()  # BGRA → BGR
+
+                    # WGC 按物理像素截图（含 DPI 缩放），resize 到逻辑像素尺寸
+                    # 保持与 mss 一致，避免 MARKER_MAX_WIDTH 等像素级阈值失效
+                    cr = win32gui.GetClientRect(self.hwnd)
+                    lw, lh = cr[2], cr[3]
+                    if lw > 0 and lh > 0 and (bgr.shape[1] != lw or bgr.shape[0] != lh):
+                        bgr = cv2.resize(bgr, (lw, lh), interpolation=cv2.INTER_LINEAR)
+
+                    with self._lock:
+                        self._latest_frame = bgr
+                except Exception as e:
+                    log.debug("WGC 帧处理失败: %s", e)
 
             @cap.event
             def on_closed():
                 log.debug("WGC 会话关闭")
+                with self._lock:
+                    self._latest_frame = None
 
-            # start() 是阻塞的，放到 daemon 线程运行
             t = threading.Thread(target=cap.start, daemon=True, name="wgc-capture")
             t.start()
-            self._capture_ctrl = cap
-            log.info("WGC 截图已启动（后台，hwnd=%d）", self.hwnd)
+            log.info("WGC 截图已启动（hwnd=%d）", self.hwnd)
         except Exception as e:
             log.warning("WGC 初始化失败，降级为 mss: %s", e)
-            self._capture_ctrl = None
 
     # ------------------------------------------------------------------
     # mss 降级方案
     # ------------------------------------------------------------------
 
     def _mss_capture(self) -> np.ndarray | None:
-        """mss 截图（需要窗口在屏幕上可见且未被遮挡）。"""
         try:
-            client_rect = win32gui.GetClientRect(self.hwnd)
-            cw, ch = client_rect[2], client_rect[3]
+            cr = win32gui.GetClientRect(self.hwnd)
+            cw, ch = cr[2], cr[3]
             if cw == 0 or ch == 0:
                 return None
             pt = ctypes.wintypes.POINT(0, 0)
@@ -123,8 +129,6 @@ class WindowCapture:
         except Exception:
             return None
 
-    # ------------------------------------------------------------------
-    # 内部工具
     # ------------------------------------------------------------------
 
     def _find_hwnd(self) -> int:

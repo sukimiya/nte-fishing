@@ -85,22 +85,18 @@ class FishingController:
         self._held = key
 
     def _keydown(self, key: str, repeat: bool = False):
-        """PostMessage WM_KEYDOWN — 直达游戏消息队列，无需焦点，不影响其他窗口。"""
-        vk = VK_MAP[key]
-        lp = _make_lparam(vk, key_up=False, repeat=repeat)
+        """keyboard.press — 更新全局 GetAsyncKeyState，游戏通过轮询读取移动键状态。"""
         try:
-            win32api.PostMessage(self.hwnd, win32con.WM_KEYDOWN, vk, lp)
+            keyboard.press(key)
         except Exception as e:
-            log.debug("PostMessage WM_KEYDOWN 失败: %s", e)
+            log.debug("keyboard.press 失败: %s", e)
 
     def _keyup(self, key: str):
-        """PostMessage WM_KEYUP。"""
-        vk = VK_MAP[key]
-        lp = _make_lparam(vk, key_up=True)
+        """keyboard.release — 释放移动键。"""
         try:
-            win32api.PostMessage(self.hwnd, win32con.WM_KEYUP, vk, lp)
+            keyboard.release(key)
         except Exception as e:
-            log.debug("PostMessage WM_KEYUP 失败: %s", e)
+            log.debug("keyboard.release 失败: %s", e)
 
     def _tap(self, key: str, duration: float):
         """短按一次：PostMessage KEYDOWN + sleep + KEYUP。"""
