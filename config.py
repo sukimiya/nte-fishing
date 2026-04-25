@@ -18,9 +18,9 @@ SLIDER_PX_THRESHOLD = 200    # 最少像素数才判定条形可见
 # 玩家竖线颜色
 MARKER_H_LOW  = 22
 MARKER_H_HIGH = 40
-MARKER_V_MIN  = 235
+MARKER_V_MIN  = 200
 MARKER_MAX_WIDTH = 20        # 竖线宽度上限（像素）
-MARKER_INNER_X_START_RATIO = 0.28   # 排除左侧图标区（相对 bar 宽度）
+MARKER_INNER_X_START_RATIO = 0.10   # 排除左侧图标区（相对 bar 宽度）
 MARKER_INNER_X_END_RATIO   = 0.94   # 排除右侧图标区（相对 bar 宽度）
 
 # 钩子图标区域（相对比例）

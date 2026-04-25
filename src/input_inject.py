@@ -26,7 +26,12 @@ class _KBDLLHOOKSTRUCT(ctypes.Structure):
         ("dwExtraInfo", ctypes.c_size_t),
     ]
 
-_HOOKPROC = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_int, ctypes.c_uint, ctypes.c_void_p)
+# 64 位 Windows：lParam 是 LPARAM = LONG_PTR = 8 字节，必须用 c_ssize_t 否则 OverflowError
+_HOOKPROC = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_int, ctypes.c_uint, ctypes.c_ssize_t)
+
+_CallNextHookEx = ctypes.windll.user32.CallNextHookEx
+_CallNextHookEx.restype  = ctypes.c_long
+_CallNextHookEx.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_uint, ctypes.c_ssize_t]
 
 @_HOOKPROC
 def _ll_hook(nCode: int, wParam: int, lParam: int) -> int:
@@ -35,7 +40,7 @@ def _ll_hook(nCode: int, wParam: int, lParam: int) -> int:
         if kb.dwExtraInfo == OUR_MARKER:
             # GetAsyncKeyState 已在 SendInput 处理时更新；此处只阻止 WM_KEYDOWN 派发
             return 1
-    return ctypes.windll.user32.CallNextHookEx(None, nCode, wParam, lParam)
+    return _CallNextHookEx(None, nCode, wParam, lParam)
 
 
 def _hook_thread_main() -> None:
