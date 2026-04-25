@@ -54,6 +54,7 @@ class WindowCapture:
             frame = self._latest_frame
 
         if frame is None:
+            log.debug("WGC 无帧，降级为 mss")
             frame = self._mss_capture()
         if frame is None:
             return None
@@ -82,6 +83,8 @@ class WindowCapture:
                 window_hwnd=self.hwnd,
             )
 
+            _first_frame = [True]
+
             @cap.event
             def on_frame_arrived(frame: Frame, ctrl: InternalCaptureControl):
                 try:
@@ -96,16 +99,26 @@ class WindowCapture:
 
                     with self._lock:
                         self._latest_frame = bgr
+
+                    if _first_frame[0]:
+                        _first_frame[0] = False
+                        log.info("WGC 首帧到达，尺寸 %dx%d（hwnd=%d）", bgr.shape[1], bgr.shape[0], self.hwnd)
                 except Exception as e:
-                    log.debug("WGC 帧处理失败: %s", e)
+                    log.warning("WGC 帧处理失败: %s", e)
 
             @cap.event
             def on_closed():
-                log.debug("WGC 会话关闭")
+                log.warning("WGC 会话关闭（hwnd=%d）", self.hwnd)
                 with self._lock:
                     self._latest_frame = None
 
-            t = threading.Thread(target=cap.start, daemon=True, name="wgc-capture")
+            def _run():
+                try:
+                    cap.start()
+                except Exception as e:
+                    log.warning("WGC cap.start() 异常退出: %s", e)
+
+            t = threading.Thread(target=_run, daemon=True, name="wgc-capture")
             t.start()
             log.info("WGC 截图已启动（hwnd=%d）", self.hwnd)
         except Exception as e:
