@@ -1,5 +1,4 @@
 # src/tray.py
-import threading
 import pystray
 import keyboard
 from PIL import Image, ImageDraw
