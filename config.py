@@ -40,3 +40,6 @@ KEY_MIN_DURATION = 0.01      # 单次最小按键时长（秒）
 CAST_WAIT_SEC    = 1.0       # 抛竿后等待时间（秒）
 END_WAIT_SEC     = 1.5       # 钓鱼结束后等待时间（秒）
 MAX_WAIT_SEC     = 60.0      # 等待上钩超时（秒），超时重新抛竿
+
+# 启动倒计时（秒）：给用户切换到游戏窗口的时间
+STARTUP_DELAY_SEC = 5

@@ -1,8 +1,11 @@
 # src/controller.py
+import ctypes
 import logging
 import time
 import win32api
 import win32con
+import win32gui
+import win32process
 import keyboard
 import config
 
@@ -25,6 +28,24 @@ def _make_lparam(vk: int, key_up: bool = False) -> int:
     if key_up:
         lParam |= (0xC0 << 24)
     return lParam
+
+
+def _force_foreground(hwnd: int):
+    """
+    强制将指定窗口置于前台。
+    使用 AttachThreadInput 绕过 Windows 防焦点抢夺机制。
+    """
+    try:
+        fg_hwnd = win32gui.GetForegroundWindow()
+        if fg_hwnd == hwnd:
+            return  # 已经是前台，无需操作
+        fg_tid = win32process.GetWindowThreadProcessId(fg_hwnd)[0]
+        tgt_tid = win32process.GetWindowThreadProcessId(hwnd)[0]
+        win32api.AttachThreadInput(fg_tid, tgt_tid, True)
+        win32gui.SetForegroundWindow(hwnd)
+        win32api.AttachThreadInput(fg_tid, tgt_tid, False)
+    except Exception as e:
+        log.debug("force_foreground 失败: %s", e)
 
 
 class FishingController:
@@ -51,8 +72,9 @@ class FishingController:
 
     def _press_key(self, key: str, duration: float):
         """
-        按键注入：优先使用 PostMessage（无需前台）；
-        若被拒绝（UIPI/权限），自动切换为 keyboard.send（需游戏在前台）。
+        按键注入，三级策略：
+        1. PostMessage（后台，无需焦点）
+        2. 若权限拒绝：force_foreground + keyboard.send（SendInput）
         """
         global _postmessage_ok
         if _postmessage_ok:
@@ -65,10 +87,11 @@ class FishingController:
                 win32api.PostMessage(self.hwnd, win32con.WM_KEYUP, vk, lp_up)
                 return
             except Exception as e:
-                log.warning("PostMessage 失败 (%s)，切换为 keyboard 方案", e)
+                log.warning("PostMessage 失败 (%s)，切换为 force_foreground+keyboard 方案", e)
                 _postmessage_ok = False
 
-        # keyboard 方案：SendInput 级别，需游戏有焦点或在前台
+        # 强制游戏前台，再用 SendInput 发键
+        _force_foreground(self.hwnd)
         log.debug("keyboard.send '%s' %.3fs", key, duration)
         keyboard.press(key)
         time.sleep(duration)
