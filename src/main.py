@@ -72,10 +72,6 @@ class FishingBot:
 
             if state != prev_state:
                 log.info("状态切换: %s → %s", prev_state.name if prev_state else "None", state.name)
-                if state == GameState.FISHING:
-                    self.controller.enable_background_mode()
-                elif prev_state == GameState.FISHING:
-                    self.controller.disable_background_mode()
                 prev_state = state
 
             if state == GameState.FISHING:
@@ -131,6 +127,5 @@ class FishingBot:
 
         if self.controller is not None:
             self.controller.release_all()
-            self.controller.disable_background_mode()
         self._state_log = "已停止"
         log.info("Bot 主循环已退出")
