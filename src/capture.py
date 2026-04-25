@@ -1,31 +1,36 @@
 import ctypes
 import ctypes.wintypes
+import logging
+import threading
 import numpy as np
 import win32gui
-import win32ui
 import mss
+from windows_capture import WindowsCapture as _WGCapture, Frame, InternalCaptureControl
 
-
-# PrintWindow flags
-_PW_CLIENTONLY        = 0x1
-_PW_RENDERFULLCONTENT = 0x2  # 要求 DWM 提供完整内容，窗口被遮挡时仍有效（Win8.1+）
+log = logging.getLogger(__name__)
 
 
 class WindowCapture:
+    """
+    优先使用 Windows Graphics Capture API（WGC）截图：
+    即使游戏窗口被其他窗口完全遮挡或不在前台，也能正确截取 DX 渲染内容。
+    WGC 不可用时降级为 mss（需要窗口可见）。
+    """
+
     def __init__(self, window_title: str):
         self.window_title = window_title
         self.hwnd = self._find_hwnd()
-        self._sct = mss.mss()
 
-    def _find_hwnd(self) -> int:
-        result = [0]
-        def cb(hwnd, _):
-            if win32gui.IsWindowVisible(hwnd):
-                t = win32gui.GetWindowText(hwnd)
-                if self.window_title in t:
-                    result[0] = hwnd
-        win32gui.EnumWindows(cb, None)
-        return result[0]
+        self._lock = threading.Lock()
+        self._latest_frame: np.ndarray | None = None
+        self._capture_ctrl = None
+
+        self._sct = mss.mss()          # mss 降级备用
+        self._start_wgc()
+
+    # ------------------------------------------------------------------
+    # 公开接口
+    # ------------------------------------------------------------------
 
     def is_window_found(self) -> bool:
         return self.hwnd != 0
@@ -44,9 +49,12 @@ class WindowCapture:
             self.refresh_hwnd()
             if not self.is_window_found():
                 return None
+            # 窗口重新找到后重启 WGC
+            self._start_wgc()
 
-        # 优先使用 PrintWindow（后台可用）；失败则降级到 mss（需窗口可见）
-        frame = self._printwindow_capture()
+        with self._lock:
+            frame = self._latest_frame
+
         if frame is None:
             frame = self._mss_capture()
         if frame is None:
@@ -62,58 +70,67 @@ class WindowCapture:
         y2 = int(region[3] * h)
         return frame[y1:y2, x1:x2]
 
-    def _printwindow_capture(self) -> np.ndarray | None:
-        """
-        通过 PrintWindow + PW_RENDERFULLCONTENT 截取窗口客户区。
-        DWM 会提供合成缓冲区，即使窗口被其他窗口完全遮挡也能正确截图。
-        适用于 DirectX 窗口模式游戏（Unity / Unreal 等）。
-        """
+    # ------------------------------------------------------------------
+    # WGC 初始化
+    # ------------------------------------------------------------------
+
+    def _start_wgc(self):
+        if not self.is_window_found():
+            return
         try:
-            cr = win32gui.GetClientRect(self.hwnd)
-            w, h = cr[2], cr[3]
-            if w == 0 or h == 0:
-                return None
-
-            hdc = win32gui.GetDC(self.hwnd)
-            mfc_dc = win32ui.CreateDCFromHandle(hdc)
-            mem_dc = mfc_dc.CreateCompatibleDC()
-            bmp = win32ui.CreateBitmap()
-            bmp.CreateCompatibleBitmap(mfc_dc, w, h)
-            mem_dc.SelectObject(bmp)
-
-            ok = ctypes.windll.user32.PrintWindow(
-                self.hwnd,
-                mem_dc.GetSafeHdc(),
-                _PW_CLIENTONLY | _PW_RENDERFULLCONTENT,
+            cap = _WGCapture(
+                cursor_capture=False,
+                draw_border=False,
+                window_hwnd=self.hwnd,
             )
 
-            frame = None
-            if ok:
-                raw = bmp.GetBitmapBits(True)
-                img = np.frombuffer(raw, dtype=np.uint8).reshape(h, w, 4)
-                frame = img[:, :, :3].copy()  # BGRA → BGR，copy 脱离 bitmap 生命周期
+            @cap.event
+            def on_frame_arrived(frame: Frame, ctrl: InternalCaptureControl):
+                # frame_buffer 是 BGRA numpy 数组
+                bgr = frame.frame_buffer[:, :, :3].copy()
+                with self._lock:
+                    self._latest_frame = bgr
 
-            mem_dc.DeleteDC()
-            mfc_dc.DeleteDC()
-            win32gui.ReleaseDC(self.hwnd, hdc)
-            win32gui.DeleteObject(bmp.GetHandle())
-            return frame
-        except Exception:
-            return None
+            @cap.event
+            def on_closed():
+                log.debug("WGC 会话关闭")
+
+            # start() 是阻塞的，放到 daemon 线程运行
+            t = threading.Thread(target=cap.start, daemon=True, name="wgc-capture")
+            t.start()
+            self._capture_ctrl = cap
+            log.info("WGC 截图已启动（后台，hwnd=%d）", self.hwnd)
+        except Exception as e:
+            log.warning("WGC 初始化失败，降级为 mss: %s", e)
+            self._capture_ctrl = None
+
+    # ------------------------------------------------------------------
+    # mss 降级方案
+    # ------------------------------------------------------------------
 
     def _mss_capture(self) -> np.ndarray | None:
-        """mss 截图（降级方案，需要窗口在屏幕上可见且未被遮挡）。"""
+        """mss 截图（需要窗口在屏幕上可见且未被遮挡）。"""
         try:
             client_rect = win32gui.GetClientRect(self.hwnd)
             cw, ch = client_rect[2], client_rect[3]
             if cw == 0 or ch == 0:
                 return None
-
             pt = ctypes.wintypes.POINT(0, 0)
             ctypes.windll.user32.ClientToScreen(self.hwnd, ctypes.byref(pt))
-
             monitor = {"left": pt.x, "top": pt.y, "width": cw, "height": ch}
             sct_img = self._sct.grab(monitor)
             return np.array(sct_img)[:, :, :3]
         except Exception:
             return None
+
+    # ------------------------------------------------------------------
+    # 内部工具
+    # ------------------------------------------------------------------
+
+    def _find_hwnd(self) -> int:
+        result = [0]
+        def cb(hwnd, _):
+            if win32gui.IsWindowVisible(hwnd) and self.window_title in win32gui.GetWindowText(hwnd):
+                result[0] = hwnd
+        win32gui.EnumWindows(cb, None)
+        return result[0]

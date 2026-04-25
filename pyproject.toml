@@ -12,6 +12,7 @@ dependencies = [
     "pydirectinput>=1.0.4",
     "pystray>=0.19.5",
     "pywin32>=311",
+    "windows-capture>=2.0.0",
 ]
 
 [dependency-groups]
