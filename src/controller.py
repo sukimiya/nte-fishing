@@ -1,14 +1,21 @@
 # src/controller.py
+import logging
 import time
 import win32api
 import win32con
+import keyboard
 import config
+
+log = logging.getLogger(__name__)
 
 VK_MAP = {
     'f': 0x46,
     'a': 0x41,
     'd': 0x44,
 }
+
+# PostMessage 是否可用（首次失败后切换为 keyboard 方案）
+_postmessage_ok = True
 
 
 def _make_lparam(vk: int, key_up: bool = False) -> int:
@@ -43,10 +50,26 @@ class FishingController:
         self._press_key(direction, duration)
 
     def _press_key(self, key: str, duration: float):
-        """向游戏窗口 PostMessage 按键，无需前台焦点。"""
-        vk = VK_MAP[key]
-        lp_down = _make_lparam(vk, key_up=False)
-        lp_up = _make_lparam(vk, key_up=True)
-        win32api.PostMessage(self.hwnd, win32con.WM_KEYDOWN, vk, lp_down)
+        """
+        按键注入：优先使用 PostMessage（无需前台）；
+        若被拒绝（UIPI/权限），自动切换为 keyboard.send（需游戏在前台）。
+        """
+        global _postmessage_ok
+        if _postmessage_ok:
+            try:
+                vk = VK_MAP[key]
+                lp_down = _make_lparam(vk, key_up=False)
+                lp_up = _make_lparam(vk, key_up=True)
+                win32api.PostMessage(self.hwnd, win32con.WM_KEYDOWN, vk, lp_down)
+                time.sleep(duration)
+                win32api.PostMessage(self.hwnd, win32con.WM_KEYUP, vk, lp_up)
+                return
+            except Exception as e:
+                log.warning("PostMessage 失败 (%s)，切换为 keyboard 方案", e)
+                _postmessage_ok = False
+
+        # keyboard 方案：SendInput 级别，需游戏有焦点或在前台
+        log.debug("keyboard.send '%s' %.3fs", key, duration)
+        keyboard.press(key)
         time.sleep(duration)
-        win32api.PostMessage(self.hwnd, win32con.WM_KEYUP, vk, lp_up)
+        keyboard.release(key)
