@@ -12,6 +12,7 @@ dependencies = [
     "pydirectinput>=1.0.4",
     "pystray>=0.19.5",
     "pywin32>=311",
+    "vgamepad>=0.1.0",
     "windows-capture>=2.0.0",
 ]
 

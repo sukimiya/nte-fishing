@@ -75,6 +75,7 @@ dependencies = [
     { name = "pydirectinput" },
     { name = "pystray" },
     { name = "pywin32" },
+    { name = "vgamepad" },
     { name = "windows-capture" },
 ]
 
@@ -94,6 +95,7 @@ requires-dist = [
     { name = "pydirectinput", specifier = ">=1.0.4" },
     { name = "pystray", specifier = ">=0.19.5" },
     { name = "pywin32", specifier = ">=311" },
+    { name = "vgamepad", specifier = ">=0.1.0" },
     { name = "windows-capture", specifier = ">=2.0.0" },
 ]
 
@@ -3247,6 +3249,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050, upload-time = "2024-12-04T17:35:26.475Z" },
 ]
+
+[[package]]
+name = "vgamepad"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8a/54/0eaddc33f84247963af078f364b37153d09fcd6cdc398f243ec3e8842c56/vgamepad-0.1.0.tar.gz", hash = "sha256:57f6bd01aec0c172947517fb782d150ef9b285f7f4d524c317374fa5c24a89de", size = 1174896, upload-time = "2023-10-14T20:29:06.154Z" }
 
 [[package]]
 name = "windows-capture"
