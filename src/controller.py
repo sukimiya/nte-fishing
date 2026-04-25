@@ -1,8 +1,6 @@
 # src/controller.py
 import logging
 import time
-import win32api
-import win32con
 import config
 from src.input_inject import key_press, key_release
 
@@ -14,14 +12,6 @@ VK_MAP = {
     'd':      0x44,
     'escape': 0x1B,
 }
-
-
-def _make_lparam(vk: int, key_up: bool = False) -> int:
-    scan = win32api.MapVirtualKey(vk, 0)
-    lParam = (scan << 16) | 1
-    if key_up:
-        lParam |= (0xC0 << 24)
-    return lParam
 
 
 class FishingController:
@@ -62,13 +52,8 @@ class FishingController:
         self._held = key
 
     def _tap(self, key: str, duration: float):
-        """短按一次：PostMessage KEYDOWN + sleep + KEYUP（F/ESC 走消息队列，后台可用）。"""
+        """短按：SendInput 路径，后台也能触发 GetAsyncKeyState，游戏可见。"""
         vk = VK_MAP[key]
-        lp_down = _make_lparam(vk, key_up=False)
-        lp_up   = _make_lparam(vk, key_up=True)
-        try:
-            win32api.PostMessage(self.hwnd, win32con.WM_KEYDOWN, vk, lp_down)
-            time.sleep(duration)
-            win32api.PostMessage(self.hwnd, win32con.WM_KEYUP, vk, lp_up)
-        except Exception as e:
-            log.debug("PostMessage _tap 失败: %s", e)
+        key_press(vk)
+        time.sleep(duration)
+        key_release(vk)
