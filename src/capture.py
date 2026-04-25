@@ -5,18 +5,22 @@ import threading
 import cv2
 import numpy as np
 import win32gui
+import win32ui
 import mss
 from windows_capture import WindowsCapture as _WGCapture, Frame, InternalCaptureControl
 
 log = logging.getLogger(__name__)
 
+_WDA_EXCLUDEFROMCAPTURE = 0x00000011
+_PW_RENDERFULLCONTENT   = 0x00000002
+
 
 class WindowCapture:
     """
-    优先使用 Windows Graphics Capture API（WGC）截图：
-    即使游戏窗口被其他窗口完全遮挡也能正确截取 DX 渲染内容。
-    WGC 帧会 resize 到逻辑像素尺寸（与 DPI 缩放无关），保持检测阈值一致。
-    WGC 不可用时降级为 mss（需要窗口可见）。
+    截图优先级：
+    1. WGC（Windows Graphics Capture）：后台 DX 内容，但被 WDA_EXCLUDEFROMCAPTURE 屏蔽时返回黑帧
+    2. PrintWindow(PW_RENDERFULLCONTENT)：不受 WDA_EXCLUDEFROMCAPTURE 限制，无需窗口可见
+    3. mss：仅当窗口在屏幕上可见时有效，作为最终兜底
     """
 
     def __init__(self, window_title: str):
@@ -53,9 +57,18 @@ class WindowCapture:
         with self._lock:
             frame = self._latest_frame
 
+        # WGC 黑帧（WDA_EXCLUDEFROMCAPTURE 保护）→ 降级为 PrintWindow
+        if frame is not None and frame.mean() < 5:
+            log.debug("WGC 返回黑帧（均值=%.2f），疑似 WDA 保护，尝试 PrintWindow", frame.mean())
+            frame = None
+
         if frame is None:
-            log.debug("WGC 无帧，降级为 mss")
+            frame = self._print_window_capture()
+
+        if frame is None:
+            log.debug("PrintWindow 无效，降级为 mss")
             frame = self._mss_capture()
+
         if frame is None:
             return None
 
@@ -70,12 +83,21 @@ class WindowCapture:
         return frame[y1:y2, x1:x2]
 
     # ------------------------------------------------------------------
-    # WGC 初始化
+    # WGC
     # ------------------------------------------------------------------
 
     def _start_wgc(self):
         if not self.is_window_found():
             return
+
+        # 记录 WDA 保护状态，方便诊断
+        aff = ctypes.c_uint32(0)
+        ctypes.windll.user32.GetWindowDisplayAffinity(self.hwnd, ctypes.byref(aff))
+        if aff.value != 0:
+            log.warning("窗口 WDA 保护已开启（值=%d），WGC 在后台可能返回黑帧，将自动降级为 PrintWindow", aff.value)
+        else:
+            log.info("窗口 WDA 保护未开启，WGC 后台截图应正常")
+
         try:
             cap = _WGCapture(
                 cursor_capture=False,
@@ -88,21 +110,17 @@ class WindowCapture:
             @cap.event
             def on_frame_arrived(frame: Frame, ctrl: InternalCaptureControl):
                 try:
-                    bgr = frame.frame_buffer[:, :, :3].copy()  # BGRA → BGR
-
-                    # WGC 按物理像素截图（含 DPI 缩放），resize 到逻辑像素尺寸
-                    # 保持与 mss 一致，避免 MARKER_MAX_WIDTH 等像素级阈值失效
+                    bgr = frame.frame_buffer[:, :, :3].copy()
                     cr = win32gui.GetClientRect(self.hwnd)
                     lw, lh = cr[2], cr[3]
                     if lw > 0 and lh > 0 and (bgr.shape[1] != lw or bgr.shape[0] != lh):
                         bgr = cv2.resize(bgr, (lw, lh), interpolation=cv2.INTER_LINEAR)
-
                     with self._lock:
                         self._latest_frame = bgr
-
                     if _first_frame[0]:
                         _first_frame[0] = False
-                        log.info("WGC 首帧到达，尺寸 %dx%d（hwnd=%d）", bgr.shape[1], bgr.shape[0], self.hwnd)
+                        log.info("WGC 首帧到达 %dx%d 均值=%.1f（hwnd=%d）",
+                                 bgr.shape[1], bgr.shape[0], bgr.mean(), self.hwnd)
                 except Exception as e:
                     log.warning("WGC 帧处理失败: %s", e)
 
@@ -118,14 +136,43 @@ class WindowCapture:
                 except Exception as e:
                     log.warning("WGC cap.start() 异常退出: %s", e)
 
-            t = threading.Thread(target=_run, daemon=True, name="wgc-capture")
-            t.start()
+            threading.Thread(target=_run, daemon=True, name="wgc-capture").start()
             log.info("WGC 截图已启动（hwnd=%d）", self.hwnd)
         except Exception as e:
-            log.warning("WGC 初始化失败，降级为 mss: %s", e)
+            log.warning("WGC 初始化失败: %s", e)
 
     # ------------------------------------------------------------------
-    # mss 降级方案
+    # PrintWindow（不受 WDA_EXCLUDEFROMCAPTURE 限制）
+    # ------------------------------------------------------------------
+
+    def _print_window_capture(self) -> np.ndarray | None:
+        try:
+            cr = win32gui.GetClientRect(self.hwnd)
+            cw, ch = cr[2], cr[3]
+            if cw == 0 or ch == 0:
+                return None
+            hDC    = win32gui.GetDC(self.hwnd)
+            mfcDC  = win32ui.CreateDCFromHandle(hDC)
+            memDC  = mfcDC.CreateCompatibleDC()
+            bmp    = win32ui.CreateBitmap()
+            bmp.CreateCompatibleBitmap(mfcDC, cw, ch)
+            memDC.SelectObject(bmp)
+            ctypes.windll.user32.PrintWindow(self.hwnd, memDC.GetSafeHdc(), _PW_RENDERFULLCONTENT)
+            raw  = bmp.GetBitmapBits(True)
+            bgr  = np.frombuffer(raw, dtype=np.uint8).reshape((ch, cw, 4))[:, :, :3].copy()
+            win32gui.DeleteObject(bmp.GetHandle())
+            memDC.DeleteDC()
+            mfcDC.DeleteDC()
+            win32gui.ReleaseDC(self.hwnd, hDC)
+            if bgr.mean() < 5:
+                return None
+            return bgr
+        except Exception as e:
+            log.debug("PrintWindow 失败: %s", e)
+            return None
+
+    # ------------------------------------------------------------------
+    # mss 兜底
     # ------------------------------------------------------------------
 
     def _mss_capture(self) -> np.ndarray | None:
