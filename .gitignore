@@ -11,3 +11,15 @@ wheels/
 
 # Project specific
 frames/
+debug_frame_*.png
+frames_*/
+*.mp4
+*.avi
+*.mov
+
+# Claude internal
+.claude/
+docs/superpowers/
+
+# Analysis scripts
+analyze_hook.py

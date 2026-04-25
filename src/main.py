@@ -81,23 +81,30 @@ class FishingBot:
                 if fl is not None and fr is not None and px is not None:
                     error = px - (fl + fr) / 2
                     log.debug("FISHING  鱼区[%d,%d] 竖线=%d 误差=%+.0f", fl, fr, px, error)
-                    self.controller.adjust_line(error)
+                    self.controller.hold_direction(error)
                 else:
                     log.debug("FISHING  位置检测失败 fl=%s fr=%s px=%s", fl, fr, px)
+                    self.controller.release_all()
 
             elif state == GameState.BITE:
+                self.controller.release_all()
                 self._state_log = "上钩！按F"
                 log.info("检测到上钩 → 按 F")
                 self.controller.press_cast()
                 time.sleep(0.3)
 
             else:  # IDLE
+                self.controller.release_all()
                 if fishing_started:
-                    self._state_log = "钓鱼结束，等待中"
-                    log.info("钓鱼结束，等待 %.1fs 后重新抛竿", config.END_WAIT_SEC)
                     fishing_started = False
                     cast_at = None
+                    self._state_log = "等待结果界面"
+                    log.info("钓鱼结束，等待结果界面 %.1fs", config.END_WAIT_SEC)
                     time.sleep(config.END_WAIT_SEC)
+                    self._state_log = "关闭结果界面"
+                    log.info("点击空白处关闭结果界面")
+                    self.controller.click_dismiss()
+                    time.sleep(config.RESULT_WAIT_SEC)
                     continue
 
                 now = time.time()
@@ -118,5 +125,7 @@ class FishingBot:
 
             time.sleep(config.LOOP_INTERVAL)
 
+        if self.controller is not None:
+            self.controller.release_all()
         self._state_log = "已停止"
         log.info("Bot 主循环已退出")

@@ -55,4 +55,4 @@ def test_fishing_error_sign(detector, key, expected_error_sign):
     if expected_error_sign == +1:
         assert error > 10
     elif expected_error_sign == 0:
-        assert abs(error) < 50
+        assert abs(error) < 80

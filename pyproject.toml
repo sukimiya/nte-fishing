@@ -9,6 +9,7 @@ dependencies = [
     "numpy>=2.4.4",
     "opencv-python>=4.13.0.92",
     "pillow>=12.2.0",
+    "pydirectinput>=1.0.4",
     "pystray>=0.19.5",
     "pywin32>=311",
 ]

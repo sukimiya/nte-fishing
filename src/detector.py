@@ -34,6 +34,12 @@ class StateDetector:
         fish_left, fish_right = self._find_slider(hsv)
         player_x = self._find_player_marker(hsv)
 
+        # 过滤假阳性：竖线距鱼滑块中心超过 400px 视为误检
+        if fish_left is not None and fish_right is not None and player_x is not None:
+            fish_center = (fish_left + fish_right) / 2
+            if abs(player_x - fish_center) > config.PLAYER_MAX_DIST_FROM_FISH:
+                player_x = None
+
         return fish_left, fish_right, player_x
 
     def _is_bar_visible(self, frame: np.ndarray) -> bool:
@@ -53,7 +59,13 @@ class StateDetector:
             int(w * config.HOOK_X_START_RATIO):int(w * config.HOOK_X_END_RATIO)
         ]
         hsv = cv2.cvtColor(icon, cv2.COLOR_BGR2HSV)
-        return float(hsv[:, :, 2].mean()) > config.BITE_V_THRESHOLD
+        blue_mask = (
+            (hsv[:, :, 0] >= config.BITE_BLUE_H_LOW) &
+            (hsv[:, :, 0] <= config.BITE_BLUE_H_HIGH) &
+            (hsv[:, :, 1] > config.BITE_BLUE_S_MIN) &
+            (hsv[:, :, 2] > config.BITE_BLUE_V_MIN)
+        )
+        return int(blue_mask.sum()) > config.BITE_BLUE_PX_THRESHOLD
 
     def _slider_mask(self, hsv: np.ndarray) -> np.ndarray:
         return (
@@ -68,11 +80,24 @@ class StateDetector:
         cols = np.where(mask.any(axis=0))[0]
         if len(cols) == 0:
             return None, None
-        return int(cols[0]), int(cols[-1])
+        # 分组为连续段，取最宽的段（右侧常有1-4px虚假段）
+        segments: list[tuple[int, int]] = []
+        s = p = int(cols[0])
+        for c in cols[1:]:
+            if c - p > 5:
+                segments.append((s, p))
+                s = int(c)
+            p = int(c)
+        segments.append((s, p))
+        best = max(segments, key=lambda g: g[1] - g[0])
+        return best[0], best[1]
 
     def _find_player_marker(self, bar_hsv: np.ndarray) -> int | None:
         """查找玩家竖线（黄白亮线），排除两侧图标区域。"""
-        inner = bar_hsv[:, config.MARKER_INNER_X_START:config.MARKER_INNER_X_END]
+        bar_w = bar_hsv.shape[1]
+        ix0 = int(bar_w * config.MARKER_INNER_X_START_RATIO)
+        ix1 = int(bar_w * config.MARKER_INNER_X_END_RATIO)
+        inner = bar_hsv[:, ix0:ix1]
         mask = (
             (inner[:, :, 0] >= config.MARKER_H_LOW) &
             (inner[:, :, 0] <= config.MARKER_H_HIGH) &
@@ -82,7 +107,7 @@ class StateDetector:
         if len(cols) == 0:
             return None
         if len(cols) == 1:
-            return int(cols[0]) + config.MARKER_INNER_X_START
+            return int(cols[0]) + ix0
 
         groups: list[tuple[int, int]] = []
         s, p = int(cols[0]), int(cols[0])
@@ -98,4 +123,4 @@ class StateDetector:
             return None
 
         best = min(narrow, key=lambda g: g[1] - g[0])
-        return int(np.mean(best)) + config.MARKER_INNER_X_START
+        return int(np.mean(best)) + ix0
