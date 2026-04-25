@@ -2,7 +2,7 @@
 name = "nte-fishing"
 version = "0.1.0"
 description = "Add your description here"
-requires-python = ">=3.14"
+requires-python = ">=3.11"
 dependencies = [
     "keyboard>=0.13.5",
     "mss>=10.2.0",
@@ -16,5 +16,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pyinstaller>=6.20.0",
     "pytest>=9.0.3",
 ]

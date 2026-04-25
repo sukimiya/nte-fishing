@@ -9,6 +9,11 @@ wheels/
 # Virtual environments
 .venv
 
+# PyInstaller output
+dist/
+build/
+*.spec.bak
+
 # Project specific
 frames/
 debug_frame_*.png

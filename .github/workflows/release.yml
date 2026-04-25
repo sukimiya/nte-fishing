@@ -1,0 +1,32 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Build executable
+        run: uv run pyinstaller nte-fishing.spec --clean
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/nte-fishing.exe
+          generate_release_notes: true
