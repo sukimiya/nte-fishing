@@ -54,6 +54,7 @@ class FishingController:
     def __init__(self, hwnd: int):
         self.hwnd = hwnd
         self._held: str | None = None  # 当前持续按住的方向键
+        self._bg_hooks: list = []      # 后台模式钩子（屏蔽 A/D 进消息队列）
 
     def press_cast(self):
         """按 F 键（抛竿或确认上钩）。"""
@@ -77,6 +78,24 @@ class FishingController:
     def release_all(self):
         """松开所有方向键，离开钓鱼状态时调用。"""
         self._set_held(None)
+
+    def enable_background_mode(self):
+        """
+        钓鱼小游戏期间启用后台模式：
+        A/D 键通过 LL 钩子从消息队列中吃掉，其他窗口收不到 WM_KEYDOWN；
+        但 GetAsyncKeyState 在 LL 钩子之前已更新，游戏仍能正常读到按键状态。
+        """
+        if not self._bg_hooks:
+            self._bg_hooks.append(keyboard.block_key('a'))
+            self._bg_hooks.append(keyboard.block_key('d'))
+            log.debug("后台模式已启用（A/D 屏蔽进消息队列）")
+
+    def disable_background_mode(self):
+        """退出钓鱼状态时恢复 A/D 键正常传递。"""
+        for hook in self._bg_hooks:
+            keyboard.unhook(hook)
+        self._bg_hooks.clear()
+        log.debug("后台模式已禁用")
 
     def _set_held(self, key: str | None):
         if key == self._held:
