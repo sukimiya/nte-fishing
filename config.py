@@ -43,18 +43,28 @@ BITE_CLICK_Y_RATIO = 0.95
 PLAYER_MAX_DIST_FROM_FISH = 400  # 竖线距鱼滑块中心超过此值视为假阳性
 
 # 按键控制参数
-DEAD_ZONE        = 10        # 控制死区（像素误差）
-KEY_SCALE        = 1.0       # 按键时长系数（ms/px）
-KEY_MAX_DURATION = 0.15      # 单次最大按键时长（秒）
-KEY_MIN_DURATION = 0.01      # 单次最小按键时长（秒）
+# 缓动函数控制参数
+# easing_delta = -(竖线 - 鱼中心) * EASING_FACTOR
+# |easing_delta| > EASING_RELEASE_THRESHOLD 时按键，否则松手
+EASING_FACTOR           = 0.12   # 缓动系数，越小越平滑（推荐 0.08~0.20）
+EASING_RELEASE_THRESHOLD = 3     # 缓动 delta 松手阈值
+MISS_MAX_ERROR          = 250    # 误差超过此值视为脱钩（像素）
+
+# 旧式死区控制（保留未用，以后可能切换）
+# DEAD_ZONE = 10
+# INNER_DEAD_ZONE = 25
+
+KEY_SCALE                = 1.0   # 按键时长系数（ms/px）
+KEY_MAX_DURATION         = 0.15  # 单次最大按键时长（秒）
+KEY_MIN_DURATION         = 0.01  # 单次最小按键时长（秒）
 
 # 输入注入方法
 #   "postmessage"  — PostMessageW（幕后运行，不影响前台窗口）
 #   "sendmessage"  — SendMessageW（同步等待处理，兼容性略好）
 #   "foreground"   — 窗口置前 + SendInput（影响前台，但兼容性最好）
 #   "arrow_pm"     — 方向键 PostMessage（如果游戏绑定的是方向键）
-INPUT_METHOD = "postmessage"
-
+#INPUT_METHOD = "postmessage"
+INPUT_METHOD = "foreground"
 # 状态机时序
 CAST_WAIT_SEC    = 1.0       # 抛竿后等待时间（秒）
 END_WAIT_SEC     = 5.0       # 钓鱼结束后等待结果界面出现（秒）

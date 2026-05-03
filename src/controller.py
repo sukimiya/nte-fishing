@@ -194,16 +194,34 @@ class FishingController:
             time.sleep(0.05)
             _PostMessage(self.hwnd, _WM_LBUTTONUP, 0, lparam)
 
-    def hold_direction(self, error: float):
-        """根据误差持续按住方向键（每帧只处理切换，不重复 press）。"""
-        if error > config.DEAD_ZONE:
-            target = 'a'
-        elif error < -config.DEAD_ZONE:
+    def hold_direction(self, error: float, px: int | None = None,
+                       fl: int | None = None, fr: int | None = None):
+        """缓动函数控制竖线逼近鱼滑块中心。
+
+        每帧计算 easing_delta = -(fish_center - px) * factor
+        当 delta 超过松手阈值时按方向键，否则松手。
+        误差超过 MISS_MAX_ERROR 视为脱钩。
+        """
+
+        # ── 脱钩检测 ──────────────────────────────────
+        if abs(error) > config.MISS_MAX_ERROR:
+            log.debug("脱钩: 误差=%.0f 超过最大阈值 %d", error, config.MISS_MAX_ERROR)
+            self.release_all()
+            return
+
+        # ── 缓动函数控制 ──────────────────────────────
+        # easing_delta > 0 → 竖线在鱼左侧 → 按 D（向右追）
+        # easing_delta < 0 → 竖线在鱼右侧 → 按 A（向左追）
+        easing_delta = -error * config.EASING_FACTOR
+
+        if easing_delta > config.EASING_RELEASE_THRESHOLD:
             target = 'd'
+        elif easing_delta < -config.EASING_RELEASE_THRESHOLD:
+            target = 'a'
         else:
             target = None
 
-        # 如果在 arrow_pm 模式下使用方向键
+        # arrow_pm 模式
         if target is not None and self.method == "arrow_pm":
             target = 'left' if target == 'a' else 'right'
 
@@ -211,10 +229,9 @@ class FishingController:
         if self._held_key == target:
             return
 
-        # 松开旧键
+        # 切换按键
         if self._held_key:
             self._key_up(self._held_key)
-        # 按下新键
         if target:
             self._key_down(target)
         self._held_key = target
