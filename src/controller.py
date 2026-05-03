@@ -109,6 +109,8 @@ class FishingController:
         # foreground 模式专用
         self._fg_brought = False
         self._fg_prev = None
+        # 脱钩恢复：记录脱钩前最后一帧的有效误差方向
+        self._last_good_error: float | None = None
 
     # ── 底层按键方法 ────────────────────────────────────
 
@@ -200,18 +202,29 @@ class FishingController:
 
         每帧计算 easing_delta = -(fish_center - px) * factor
         当 delta 超过松手阈值时按方向键，否则松手。
-        误差超过 MISS_MAX_ERROR 视为脱钩。
+        误差超过 MISS_MAX_ERROR 时尝试恢复（参考上次有效位置的方向）。
         """
 
-        # ── 脱钩检测 ──────────────────────────────────
+        # ── 脱钩检测与恢复 ────────────────────────────
         if abs(error) > config.MISS_MAX_ERROR:
-            log.debug("脱钩: 误差=%.0f 超过最大阈值 %d", error, config.MISS_MAX_ERROR)
-            self.release_all()
+            log.debug("脱钩: 误差=%.0f 超过阈值 %d", error, config.MISS_MAX_ERROR)
+            # 先松手
+            if self._held_key:
+                self._key_up(self._held_key)
+                self._held_key = None
+            # 尝试恢复：朝上次有效位置的反方向追
+            if self._last_good_error is not None:
+                target = 'a' if self._last_good_error > 0 else 'd'
+                if self.method == "arrow_pm":
+                    target = 'left' if target == 'a' else 'right'
+                self._key_down(target)
+                self._held_key = target
             return
 
+        # ── 记录有效误差（未脱钩时的方向）──────────────
+        self._last_good_error = error
+
         # ── 缓动函数控制 ──────────────────────────────
-        # easing_delta > 0 → 竖线在鱼左侧 → 按 D（向右追）
-        # easing_delta < 0 → 竖线在鱼右侧 → 按 A（向左追）
         easing_delta = -error * config.EASING_FACTOR
 
         if easing_delta > config.EASING_RELEASE_THRESHOLD:

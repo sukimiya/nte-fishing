@@ -101,6 +101,8 @@ class FishingBot:
         # 调试窗口
         self._preview_enabled = False
         self._latest_vis: np.ndarray | None = None
+        # 结算卡死检测
+        self._bite_cycle_count = 0
         _diag(f"  hwnd={self.capturer.hwnd} WindowCapture OK")
 
     def start(self):
@@ -187,6 +189,13 @@ class FishingBot:
                 _diag(f"状态切换: {prev_state.name if prev_state else 'None'} → {state.name}")
 
             fl = fr = px = None
+
+            # 结算卡死检测：连续 BITE 无 FISHING → 点窗口中央
+            if state == GameState.FISHING:
+                self._bite_cycle_count = 0
+            elif state == GameState.BITE and prev_state != GameState.BITE:
+                self._bite_cycle_count += 1
+
             if state == GameState.FISHING:
                 waiting_for_bite = False
                 self._state_log = "钓鱼中"
@@ -199,36 +208,54 @@ class FishingBot:
 
             elif state == GameState.BITE:
                 self.controller.release_all()
+
+                # 卡死超过阈值 → 点窗口中央（结算界面关不掉）
+                if self._bite_cycle_count >= config.BITE_STUCK_THRESHOLD:
+                    w, h = self.capturer.get_window_size()
+                    cx = int(w * 0.5) + random.randint(-80, 80)
+                    cy = int(h * 0.5) + random.randint(-50, 50)
+                    _diag(f"结算卡死 {self._bite_cycle_count} 次，点击窗口中央 ({cx},{cy})")
+                    self.controller.click_bite(cx, cy)
+                    self._bite_cycle_count = 0
+                    needs_dismiss = False
+                    waiting_for_bite = False
+                    skip_until = time.time() + config.RESULT_WAIT_SEC
+                    prev_state = state
+                    continue
+
                 self._state_log = "上钩！按F"
                 _diag("BITE → press_cast()")
                 self.controller.press_cast()
                 skip_until = time.time() + 0.3
 
-            else:  # IDLE
+            elif state == GameState.RESULT:
                 self.controller.release_all()
+                waiting_for_bite = False
+                self._bite_cycle_count = 0
 
-                # FISHING → IDLE 转换：标记需要关闭结算
-                if state != prev_state and prev_state == GameState.FISHING and not needs_dismiss:
-                    needs_dismiss = True
+                # 首次进入结算：等待后点击关闭
+                if state != prev_state:
                     dismiss_wait = random.uniform(5, 8)
                     skip_until = time.time() + dismiss_wait
-                    self._state_log = f"等待结算 ({dismiss_wait:.0f}s)"
-                    _diag(f"钓鱼结束，等待 {dismiss_wait:.0f} 秒后关闭结算")
+                    self._state_log = f"结算 ({dismiss_wait:.0f}s)"
+                    _diag(f"结算界面，等待 {dismiss_wait:.0f}s 后关闭")
                     prev_state = state
                     continue
 
-                if needs_dismiss:
-                    needs_dismiss = False
-                    waiting_for_bite = False
-                    self._state_log = "关闭结算界面"
+                if time.time() >= skip_until:
                     w, h = self.capturer.get_window_size()
                     cx = int(w * config.BITE_CLICK_X_RATIO) + random.randint(-30, 30)
                     cy = int(h * config.BITE_CLICK_Y_RATIO) + random.randint(-30, 30)
-                    _diag(f"click_bite({cx}, {cy}) method={self.controller.method if self.controller else 'None'}")
+                    _diag(f"关闭结算，点击 ({cx}, {cy})")
                     self.controller.click_bite(cx, cy)
                     skip_until = time.time() + config.RESULT_WAIT_SEC
                     prev_state = state
                     continue
+
+                self._state_log = "结算中"
+
+            else:  # IDLE
+                self.controller.release_all()
 
                 now = time.time()
                 if not waiting_for_bite:
