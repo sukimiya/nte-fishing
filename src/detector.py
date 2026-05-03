@@ -10,6 +10,7 @@ class GameState(Enum):
     IDLE = auto()
     BITE = auto()
     FISHING = auto()
+    RESULT = auto()   # 结算/结果界面
 
 
 class StateDetector:
@@ -20,12 +21,19 @@ class StateDetector:
         tpl = cv2.imread(tpl_path, cv2.IMREAD_GRAYSCALE)
         self._marker_template = tpl
         if tpl is None:
-            self._marker_template = None  # 无模板时降级为亮度差法
-        self._last_px: int | None = None  # 上一帧玩家位置（用于时间平滑）
+            self._marker_template = None
+        # 加载结算文字模板（"点击空白区域关闭"）
+        rst_path = os.path.join(os.path.dirname(__file__), 'click_bank_close.png')
+        rst = cv2.imread(rst_path, cv2.IMREAD_GRAYSCALE)
+        self._result_template = rst
+        self._last_px: int | None = None
 
     def detect_state(self, frame: np.ndarray) -> GameState:
         if self._is_bar_visible(frame):
             return GameState.FISHING
+        # 结算界面检测优先于 BITE（结算也可能有蓝色图标）
+        if self._is_result_screen(frame):
+            return GameState.RESULT
         if self._is_bite(frame):
             return GameState.BITE
         return GameState.IDLE
@@ -108,6 +116,24 @@ class StateDetector:
             (hsv[:, :, 2] > config.BITE_BLUE_V_MIN)
         )
         return int(blue_mask.sum()) > config.BITE_BLUE_PX_THRESHOLD
+
+    def _is_result_screen(self, frame: np.ndarray) -> bool:
+        """模板匹配识别结算文字"点击空白区域关闭"。"""
+        if self._result_template is None:
+            return False
+        h, w = frame.shape[:2]
+        # 搜索区域：屏幕底部中央
+        sy1 = int(h * config.RESULT_SEARCH_Y_START)
+        sy2 = int(h * config.RESULT_SEARCH_Y_END)
+        sx1 = int(w * config.RESULT_SEARCH_X_START)
+        sx2 = int(w * config.RESULT_SEARCH_X_END)
+        if sy2 - sy1 < self._result_template.shape[0] or sx2 - sx1 < self._result_template.shape[1]:
+            return False
+        region = frame[sy1:sy2, sx1:sx2]
+        region_gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
+        result = cv2.matchTemplate(region_gray, self._result_template, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, _ = cv2.minMaxLoc(result)
+        return max_val >= config.RESULT_TEMPLATE_THRESHOLD
 
     def _slider_mask(self, hsv: np.ndarray) -> np.ndarray:
         return (

@@ -4,7 +4,7 @@ a = Analysis(
     ['run.py'],
     pathex=[],
     binaries=[],
-    datas=[('src/marker_template.png', 'src')],
+    datas=[('src/marker_template.png', 'src'), ('src/click_bank_close.png', 'src')],
     hiddenimports=[
         'pywintypes',
         'win32api',

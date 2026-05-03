@@ -36,9 +36,19 @@ BITE_BLUE_S_MIN    = 150     # 上钩蓝圈最低饱和度
 BITE_BLUE_V_MIN    = 150     # 上钩蓝圈最低亮度
 BITE_BLUE_PX_THRESHOLD = 500 # 亮蓝像素数超过此值 → 上钩（idle ≈ 0，bite > 1000）
 
-# 上钩时鼠标点击位置（窗口相对坐标比例，默认右下边缘）
-BITE_CLICK_X_RATIO = 0.95
-BITE_CLICK_Y_RATIO = 0.95
+# 结算文字识别（模板匹配 "点击空白区域关闭"）
+RESULT_SEARCH_X_START = 0.20   # 搜索区域：屏幕底部偏中央
+RESULT_SEARCH_X_END   = 0.80
+RESULT_SEARCH_Y_START = 0.80
+RESULT_SEARCH_Y_END   = 0.95
+RESULT_TEMPLATE_THRESHOLD = 0.6  # 模板匹配阈值（0~1），越高越严格
+
+# 结算关闭点击位置（窗口相对坐标比例）
+BITE_CLICK_X_RATIO = 0.5
+BITE_CLICK_Y_RATIO = 0.5
+
+# 结算卡死检测：连续 BITE 循环超过此阈值 → 强制窗口中央点击
+BITE_STUCK_THRESHOLD = 6
 
 PLAYER_MAX_DIST_FROM_FISH = 400  # 竖线距鱼滑块中心超过此值视为假阳性
 
