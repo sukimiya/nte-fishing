@@ -136,11 +136,10 @@ class StateDetector:
         return int(blue_mask.sum()) > config.BITE_BLUE_PX_THRESHOLD
 
     def _is_result_screen(self, frame: np.ndarray) -> bool:
-        """模板匹配识别结算文字"点击空白区域关闭"。"""
+        """多尺度模板匹配识别结算文字"点击空白区域关闭"（兼容不同分辨率）。"""
         if self._result_template is None:
             return False
         h, w = frame.shape[:2]
-        # 搜索区域：屏幕底部中央
         sy1 = int(h * config.RESULT_SEARCH_Y_START)
         sy2 = int(h * config.RESULT_SEARCH_Y_END)
         sx1 = int(w * config.RESULT_SEARCH_X_START)
@@ -149,9 +148,18 @@ class StateDetector:
             return False
         region = frame[sy1:sy2, sx1:sx2]
         region_gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
-        result = cv2.matchTemplate(region_gray, self._result_template, cv2.TM_CCOEFF_NORMED)
-        _, max_val, _, _ = cv2.minMaxLoc(result)
-        return max_val >= config.RESULT_TEMPLATE_THRESHOLD
+        t_h, t_w = self._result_template.shape[:2]
+        # 分辨率自适应：从 0.6x 到 1.6x 搜索（覆盖 720p → 4K）
+        for scale in (0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6):
+            sw, sh = int(t_w * scale), int(t_h * scale)
+            if sw > region_gray.shape[1] or sh > region_gray.shape[0]:
+                continue
+            scaled = cv2.resize(self._result_template, (sw, sh), interpolation=cv2.INTER_AREA)
+            result = cv2.matchTemplate(region_gray, scaled, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, _ = cv2.minMaxLoc(result)
+            if max_val >= config.RESULT_TEMPLATE_THRESHOLD:
+                return True
+        return False
 
     def _slider_mask(self, hsv: np.ndarray) -> np.ndarray:
         return (
