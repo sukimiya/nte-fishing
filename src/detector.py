@@ -1,8 +1,10 @@
 # src/detector.py
 import os
+import sys
 from enum import Enum, auto
 import cv2
 import numpy as np
+from PIL import Image
 import config
 
 
@@ -13,19 +15,35 @@ class GameState(Enum):
     RESULT = auto()   # 结算/结果界面
 
 
+def _try_load_template(filename: str) -> np.ndarray | None:
+    """加载模板图片，兼容 PyInstaller 打包后的路径和 cv2 解码问题。"""
+    # 定位资源目录
+    if hasattr(sys, '_MEIPASS'):
+        base = os.path.join(sys._MEIPASS, 'src')
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+
+    path = os.path.join(base, filename)
+
+    # 优先 cv2 直接读（最快）
+    tpl = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+    if tpl is not None:
+        return tpl
+
+    # cv2 失败 → 用 PIL 读再转（解决打包后 PNG 解码 DLL 缺失问题）
+    try:
+        pil_img = Image.open(path).convert('L')
+        tpl = np.array(pil_img, dtype=np.uint8)
+        return tpl
+    except Exception:
+        return None
+
+
 class StateDetector:
 
     def __init__(self):
-        # 加载竖线模板（通过模板匹配找玩家位置）
-        tpl_path = os.path.join(os.path.dirname(__file__), 'marker_template.png')
-        tpl = cv2.imread(tpl_path, cv2.IMREAD_GRAYSCALE)
-        self._marker_template = tpl
-        if tpl is None:
-            self._marker_template = None
-        # 加载结算文字模板（"点击空白区域关闭"）
-        rst_path = os.path.join(os.path.dirname(__file__), 'click_bank_close.png')
-        rst = cv2.imread(rst_path, cv2.IMREAD_GRAYSCALE)
-        self._result_template = rst
+        self._marker_template = _try_load_template('marker_template.png')
+        self._result_template = _try_load_template('click_bank_close.png')
         self._last_px: int | None = None
 
     def detect_state(self, frame: np.ndarray) -> GameState:
